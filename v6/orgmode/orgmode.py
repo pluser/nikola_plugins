@@ -81,6 +81,105 @@ class CompileOrgmode(PageCompiler):
                                 'configuration (return code {1})'.format(
                                     source, e.returncode))
 
+    def read_metadata(self, post, *args, **kwargs):
+        """This function parse metadata.
+        Parse will be disabled in special section
+        '#+BEGIN_NIKOLA_IGNORE ... #+END_NIKOLA_IGNORE'.
+        You can write metadata in your .org decument with following syntax.
+        Lower number is high priority.
+
+        1. #+NIKOLA_TITLE: Awesome title
+           #+NIKOLA_DATE: 2015-01-01 09:00:00 UTC+09:00
+           #+NIKOLA_SLUG: this-is-an-awesome-page
+
+        2. #+BEGIN_COMMENT
+           .. title: Awesome title
+           .. date: 2015-01-01 09:00:00 UTC+09:00
+           .. slug: this-is-an-awesome-page
+           #+END_COMMENT
+
+        3. #+TITLE: Awesome title
+           #+DATE: 2015-01-01 09:00:00 UTC+09:00
+           #+SLUG: this-is-an-awesome-page
+           #+N_TAGS: this, is, special, case
+           #+N_LINK: http://this.is.special.case/too
+        """
+        import re
+
+        attrmarkers = (
+            {'keyword': 'annotations', 'regexps': [r'^\.\.\s+annotations?\s?:\s*(?P<value>.*)$', r'^\#\+ANNOTATIONS?\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'author', 'regexps': [r'^\.\.\s+author\s?:\s*(?P<value>.*)$', r'^\#\+AUTHOR\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'category', 'regexps': [r'^\.\.\s+categor(?:y|ies)\s?:\s*(?P<value>.*)$', r'^\#\+CATEGOR(?:Y|IES)\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'date', 'regexps': [r'^\.\.\s+date\s?:\s*(?P<value>.*)$', r'^\#\+DATE\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'description', 'regexps': [r'^\.\.\s+description\s?:\s*(?P<value>.*)$', r'^\#\+DESCRIPTION\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'enclosure', 'regexps': [r'^\.\.\s+enclosure\s?:\s*(?P<value>.*)$', r'^\#\+ENCLOSURE\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'filters', 'regexps': [r'^\.\.\s+filters?\s?:\s*(?P<value>.*)$', r'^\#\+FILTERS?\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'hidetitle', 'regexps': [r'^\.\.\s+hidetitle\s?:\s*(?P<value>.*)$', r'^\#\+HIDETITLE\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'link', 'regexps': [r'^\.\.\s+link\s?:\s*(?P<value>.*)$', r'^\#\+N[-_]?LINK\s?:\s*(?P<value>.*)$']},  # #+LINK is omitted; Emacs uses this attribute as another purpose. Use #+NIKOLA_LINK instead.
+            {'keyword': 'noannotations', 'regexps': [r'^\.\.\s+noannotations?\s?:\s*(?P<value>.*)$', r'^\#\+NOANNOTATIONS?\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'nocomments', 'regexps': [r'^\.\.\s+nocomments?\s?:\s*(?P<value>.*)$', r'^\#\+NOCOMMENTS?\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'password', 'regexps': [r'^\.\.\s+password\s?:\s*(?P<value>.*)$', r'^\#\+PASSWORD\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'previewimage', 'regexps': [r'^\.\.\s+previewimage\s?:\s*(?P<value>.*)$', r'^\#\+PREVIEWIMAGE\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'slug', 'regexps': [r'^\.\.\s+slug\s?:\s*(?P<value>.*)$', r'^\#\+SLUG\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'tags', 'regexps': [r'^\.\.\s+tags?\s?:\s*(?P<value>.*)$', r'^\#\+N[-_]?TAGS?\s?:\s*(?P<value>.*)$']},  # #+TAGS is omitted; Emacs uses this attribute more advanced. Use #+NIKOLA_TAGS instead.
+            {'keyword': 'template', 'regexps': [r'^\.\.\s+template\s?:\s*(?P<value>.*)$', r'^\#\+TEMPLATE\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'title', 'regexps': [r'^\.\.\s+title\s?:\s*(?P<value>.*)$', r'^\#\+TITLE\s?:\s*(?P<value>.*)$']},
+            {'keyword': 'type', 'regexps': [r'^\.\.\s+type\s?:\s*(?P<value>.*)$', r'^\#\+TYPE\s?:\s*(?P<value>.*)$']},
+        )
+        maskmarkers = (
+            {'begin': r'^\#\+BEGIN[-_]EXAMPLE', 'end': r'^\#\+END[-_]EXAMPLE'},
+            {'begin': r'^\#\+BEGIN[-_]NIKOLA[-_]IGNORE', 'end': r'^\#\+END[-_]NIKOLA[-_]IGNORE'},
+            {'begin': r'^\#\+BEGIN[-_]SRC', 'end': r'^\#\+END[-_]SRC'},
+        )
+
+        try:
+            with codecs.open(post.source_path, 'r', "utf8") as fd:
+                content = fd.read()
+        except OSError as err:
+            logger.critical('Couln\'t open the file. Stop processing. reason: {} file: {}'.format(err, post.source_path))
+            raise
+
+        # convert maskmarkers to maskranges #
+        maskranges = set()
+        for maskmarker in maskmarkers:
+            begin_match = re.finditer(maskmarker['begin'], content, re.IGNORECASE | re.MULTILINE)
+            begin_pos = (match.start() for match in begin_match)
+            end_match = re.finditer(maskmarker['end'], content, re.IGNORECASE | re.MULTILINE)
+            end_pos = (match.end() for match in end_match)
+            maskranges.update({x for x in zip(begin_pos, end_pos)})
+
+        def check_mask_range(span, maskranges):
+            for maskrange in maskranges:
+                if maskrange[0] < span[0] < maskrange[1] or maskrange[0] < span[1] < maskrange[1]:
+                    return False
+            return True
+
+        def find_attr_gen(match_iter, maskranges):
+            for match in match_iter:
+                if check_mask_range(match.span(), maskranges):
+                    yield match
+
+        # find metadata #
+        metadata = dict()
+        for attrmarker in attrmarkers:
+            for regexp in attrmarker['regexps']:
+                match_iter = find_attr_gen(re.finditer(regexp, content, re.IGNORECASE | re.MULTILINE), maskranges)
+                try:
+                    match = next(match_iter)
+                except StopIteration: pass
+                else:
+                    metadata[attrmarker['keyword']] = match.group('value')
+                    break
+        local_metadata = dict()
+        match_iter = find_attr_gen(re.finditer(r'^\#\+NIKOLA[-_](?P<keyword>\w+?)\s?:\s*(?P<value>.*)$', content, re.IGNORECASE | re.MULTILINE), maskranges)
+        for match in match_iter:
+            if not match.group('keyword').lower() in local_metadata:
+                local_metadata[match.group('keyword').lower()] = match.group('value')
+        metadata.update(local_metadata)
+        del match_iter, local_metadata
+
+        return metadata
+
     def create_post(self, path, **kw):
         content = kw.pop('content', None)
         onefile = kw.pop('onefile', False)
