@@ -127,3 +127,15 @@ specified location."
     (org-macro-replace-all nikola-macro-templates)
     (org-html-export-as-html nil nil t t)
     (write-file outfile nil)))
+
+(defun nikola-start-pipe-mode ()
+  "Receive two file path through stdin
+and response through stdout again and again."
+  (while t
+    (let ((infile (read-string ""))
+          (outfile (read-string "")))
+      (condition-case err
+          (progn
+            (nikola-html-export infile outfile)
+            (princ "200 OK\n"))
+        (error (princ (format "500 Emacs-side error: %s\n" err)))))))

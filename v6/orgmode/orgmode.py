@@ -59,9 +59,11 @@ class CompileOrgmode(PageCompiler):
     """ Compile org-mode markup into HTML using emacs. """
 
     name = "orgmode"
+    mode = "pipe"
 
     def __init__(self):
         self._compile_regexp()
+        self._standby_compiler()
 
     @classmethod
     def _compile_regexp(cls):
@@ -73,7 +75,70 @@ class CompileOrgmode(PageCompiler):
             maskmarker['end'] = re.compile(maskmarker['end'], re.IGNORECASE | re.MULTILINE)
         logger.debug('All regexps were compiled.')
 
-    def compile_html(self, source, dest, is_two_file=True):
+    def _standby_compiler(self):
+        if self.mode == 'pipe':
+            logger.debug('Spawning emacs process...')
+            try:
+                self._FNULL = open(os.devnull, 'w')
+                self._emacs = subprocess.Popen(
+                    ['emacs', '--batch',
+                     '--load', join(dirname(abspath(__file__)), 'init.el'),
+                     '--eval', '(nikola-start-pipe-mode)'],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=self._FNULL,
+                    universal_newlines=True,
+                )
+            except OSError as err:
+                self.mode = 'batch'
+                self.compile_html = self.compile_html_batch_mode
+                logger.error('Failed to spawn Emacs with pipe mode. Using batch mode instead. reason: {}'.format(err))
+            else:
+                self.compile_html = self.compile_html_pipe_mode
+                logger.debug('Emacs process spawned. pid:{}'.format(self._emacs.pid))
+        elif self.mode == 'batch':
+            self.compile_html = self.compile_html_batch_mode
+        else:
+            self.compile_html = self.compile_html_batch_mode
+            logger.warning('Compile mode is not selected.')
+
+    def __del__(self):
+        if hasattr(self, '_emacs') and not self._emacs.poll():
+            self._FNULL.close()
+            self._emacs.kill()
+
+    def compile_html_pipe_mode(self, source, dest, is_two_file=True):
+        if self.mode == 'batch':
+            return self.compile_html_batch_mode(source, dest, is_two_file=True)
+        makedirs(os.path.dirname(dest))
+
+        try:
+            if os.name == 'nt':
+                self._emacs.stdin.write(abspath(source).replace('\\', '\\\\')+'\r\n')
+                self._emacs.stdin.write(abspath(dest).replace('\\', '\\\\')+'\r\n')
+            else:
+                self._emacs.stdin.write(abspath(source)+'\n')
+                self._emacs.stdin.write(abspath(dest)+'\n')
+            self._emacs.stdin.flush()
+            msg = self._emacs.stdout.readline()  # wait for emacs
+
+        except OSError as err:
+            import errno
+            if err.errno == errno.EPIPE or err.errno == errno.ESHUTDOWN:
+                logger.error('Pipe is broken. Maybe Emacs exited? Fallback to batch mode... reason: {}'.format(err))
+            else:
+                logger.error('OSError reported. Fallback to batch mode... reason: {}'.format(err))
+            self.mode = 'batch'
+            self.compile_html_batch_mode(source, dest, is_two_file)
+
+        else:
+            if '200 OK' in msg:
+                logger.debug('Succeeded compile with pipe mode. status: {}'.format(msg))
+            else:
+                logger.error('Something happend during compile. Fallback to batch mode... reason: {}'.format(msg))
+                self.compile_html_batch_mode(source, dest, is_two_file)
+
+    def compile_html_batch_mode(self, source, dest, is_two_file=True):
         makedirs(os.path.dirname(dest))
         try:
             command = [
