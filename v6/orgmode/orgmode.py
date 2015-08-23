@@ -284,6 +284,28 @@ class CompileOrgmode(PageCompiler):
                 logger.debug('Valid metadata was found. key: {}, value: {}'.format(keyword, value))
         metadata.update(local_metadata)
 
+        # guessing metadata #
+        if not getattr(self, 'no_guess', False):
+            if 'title' not in metadata:
+                match_iter = re.finditer('^(?!#\+|\n|\r)[-!@#$%^&*_=+~;.,\s]*(?P<title>.*)', content, re.IGNORECASE | re.MULTILINE)
+                blocks = find_section(({'begin': '^#\+BEGIN', 'end': '^#\+END'},), content)
+                for match in match_iter:
+                    if check_mask_range(match.span(), blocks):
+                        metadata.update({'title': match.group('title')})
+                        logger.info('Title attribute was not found. Tried to guess title. title: {} file: {}'
+                                    .format(metadata['title'], post.source_path))
+                        break
+            if 'date' not in metadata:
+                import os.path, datetime
+                try:
+                    t = os.path.getmtime(post.source_path)
+                except OSError as err:
+                    logger.error('Couldn\'t get file modification time. reason: {} file: {}'.format(err. post.source_path))
+                else:
+                    metadata.update({'date': datetime.datetime.fromtimestamp(t)})
+                    logger.info('Date attribute was not found. Tried to guess date. date: {} file: {}'
+                                .format(metadata['date'], post.source_path))
+
         logger.debug('*** End metadata parsing. file: {} ***'.format(post.source_path))
 
         return metadata

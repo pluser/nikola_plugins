@@ -11,6 +11,7 @@ import orgmode
 class OrgmodeTestBase(unittest.TestCase):
     def setUp(self):
         self.target = orgmode.CompileOrgmode
+        self.target.no_guess = True
         self.post = type(str('testpost'), (object,), {})
 
     def tearDown(self):
