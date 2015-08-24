@@ -37,6 +37,9 @@ import re
 from os.path import abspath, dirname, join
 import subprocess
 
+import nikola.utils
+logger = nikola.utils.get_logger('plugin.orgmode', nikola.utils.STDERR_HANDLER)
+
 try:
     from collections import OrderedDict
 except ImportError:
@@ -68,6 +71,7 @@ class CompileOrgmode(PageCompiler):
         for maskmarker in cls.maskmarkers:
             maskmarker['begin'] = re.compile(maskmarker['begin'], re.IGNORECASE | re.MULTILINE)
             maskmarker['end'] = re.compile(maskmarker['end'], re.IGNORECASE | re.MULTILINE)
+        logger.debug('All regexps were compiled.')
 
     def compile_html(self, source, dest, is_two_file=True):
         makedirs(os.path.dirname(dest))
@@ -151,9 +155,12 @@ class CompileOrgmode(PageCompiler):
             logger.critical('Couln\'t open the file. Stop processing. reason: {} file: {}'.format(err, post.source_path))
             raise
 
+        logger.debug('*** Start metadata parsing. file: {} ***'.format(post.source_path))
+
         def find_section(regexps, content):
             pos_pairs = set()
             for marker in regexps:
+                logger.debug('Looking for blocks with regexp. begin: {} end: {}'.format(marker['begin'], marker['end']))
                 if isinstance(marker['begin'], type(re.compile(''))):
                     begin_match = marker['begin'].finditer(content)
                 else:
@@ -165,6 +172,8 @@ class CompileOrgmode(PageCompiler):
                     end_match = re.finditer(marker['end'], content, re.IGNORECASE | re.MULTILINE)
                 end_pos = (match.end() for match in end_match)
                 pos_pairs.update(x for x in zip(begin_pos, end_pos))
+            for pos_pair in pos_pairs:
+                logger.debug('A block was found. blocks: {}'.format(content[pos_pair[0]:pos_pair[1]]))
             return pos_pairs
 
         # convert maskmarkers to maskranges #
@@ -180,24 +189,33 @@ class CompileOrgmode(PageCompiler):
             for match in match_iter:
                 if check_mask_range(match.span(), maskranges):
                     yield match
+                else:
+                    logger.debug('Masked metadata was found. masked: {}'.format(match.group()))
 
         # find metadata #
         metadata = dict()
         for attrmarker in self.attrmarkers:
             for regexp in attrmarker['regexps']:
                 match_iter = find_attr_gen(regexp.finditer(content), maskranges)
+                logger.debug('Looking for metadata with compiled regexp. attrmarker: {}'.format(regexp.pattern))
                 try:
                     match = next(match_iter)
                 except StopIteration: pass
                 else:
                     metadata[attrmarker['keyword']] = match.group('value')
+                    logger.debug('Valid metadata was found. key: {}, value: {}'.format(attrmarker['keyword'], match.group('value')))
                     break
         local_metadata = dict()
         match_iter = find_attr_gen(re.finditer(r'^\#\+NIKOLA[-_](?P<keyword>\w+?)\s?:\s*(?P<value>.*)$', content, re.IGNORECASE | re.MULTILINE), maskranges)
         for match in match_iter:
-            if not match.group('keyword').lower() in local_metadata:
-                local_metadata[match.group('keyword').lower()] = match.group('value')
+            keyword = match.group('keyword').lower()
+            value = match.group('value')
+            if keyword not in local_metadata:
+                local_metadata[keyword] = value
+                logger.debug('Valid metadata was found. key: {}, value: {}'.format(keyword, value))
         metadata.update(local_metadata)
+
+        logger.debug('*** End metadata parsing. file: {} ***'.format(post.source_path))
 
         return metadata
 
