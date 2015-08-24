@@ -213,12 +213,16 @@ class CompileOrgmode(PageCompiler):
            #+N_LINK: http://this.is.special.case/too
         """
 
-        try:
-            with codecs.open(post.source_path, 'r', "utf8") as fd:
-                content = fd.read()
-        except OSError as err:
-            logger.critical('Couln\'t open the file. Stop processing. reason: {} file: {}'.format(err, post.source_path))
-            raise
+        if hasattr(post, 'orgmode_testdata'):  # for unittest
+            content = post.orgmode_testdata
+            post.source_path = 'unittest'
+        else:
+            try:
+                with codecs.open(post.source_path, 'r', "utf8") as fd:
+                    content = fd.read()
+            except OSError as err:
+                logger.critical('Couln\'t open the file. Stop processing. reason: {} file: {}'.format(err, post.source_path))
+                raise
 
         logger.debug('*** Start metadata parsing. file: {} ***'.format(post.source_path))
 
