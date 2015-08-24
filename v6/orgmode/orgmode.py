@@ -33,6 +33,7 @@ You will need to install emacs and org-mode (v8.x or greater).
 from __future__ import unicode_literals
 import codecs
 import os
+import re
 from os.path import abspath, dirname, join
 import subprocess
 
@@ -55,6 +56,18 @@ class CompileOrgmode(PageCompiler):
     """ Compile org-mode markup into HTML using emacs. """
 
     name = "orgmode"
+
+    def __init__(self):
+        self._compile_regexp()
+
+    @classmethod
+    def _compile_regexp(cls):
+        for attrmarker in cls.attrmarkers:
+            for index, regexp in enumerate(attrmarker['regexps']):
+                attrmarker['regexps'][index] = re.compile(regexp, re.IGNORECASE | re.MULTILINE)
+        for maskmarker in cls.maskmarkers:
+            maskmarker['begin'] = re.compile(maskmarker['begin'], re.IGNORECASE | re.MULTILINE)
+            maskmarker['end'] = re.compile(maskmarker['end'], re.IGNORECASE | re.MULTILINE)
 
     def compile_html(self, source, dest, is_two_file=True):
         makedirs(os.path.dirname(dest))
@@ -81,6 +94,32 @@ class CompileOrgmode(PageCompiler):
                                 'configuration (return code {1})'.format(
                                     source, e.returncode))
 
+    attrmarkers = (
+        {'keyword': 'annotations', 'regexps': [r'^\.\.\s+annotations?\s?:\s*(?P<value>.*)$', r'^\#\+ANNOTATIONS?\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'author', 'regexps': [r'^\.\.\s+author\s?:\s*(?P<value>.*)$', r'^\#\+AUTHOR\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'category', 'regexps': [r'^\.\.\s+categor(?:y|ies)\s?:\s*(?P<value>.*)$', r'^\#\+CATEGOR(?:Y|IES)\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'date', 'regexps': [r'^\.\.\s+date\s?:\s*(?P<value>.*)$', r'^\#\+DATE\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'description', 'regexps': [r'^\.\.\s+description\s?:\s*(?P<value>.*)$', r'^\#\+DESCRIPTION\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'enclosure', 'regexps': [r'^\.\.\s+enclosure\s?:\s*(?P<value>.*)$', r'^\#\+ENCLOSURE\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'filters', 'regexps': [r'^\.\.\s+filters?\s?:\s*(?P<value>.*)$', r'^\#\+FILTERS?\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'hidetitle', 'regexps': [r'^\.\.\s+hidetitle\s?:\s*(?P<value>.*)$', r'^\#\+HIDETITLE\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'link', 'regexps': [r'^\.\.\s+link\s?:\s*(?P<value>.*)$', r'^\#\+N[-_]?LINK\s?:\s*(?P<value>.*)$']},  # #+LINK is omitted; Emacs uses this attribute as another purpose. Use #+NIKOLA_LINK instead.
+        {'keyword': 'noannotations', 'regexps': [r'^\.\.\s+noannotations?\s?:\s*(?P<value>.*)$', r'^\#\+NOANNOTATIONS?\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'nocomments', 'regexps': [r'^\.\.\s+nocomments?\s?:\s*(?P<value>.*)$', r'^\#\+NOCOMMENTS?\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'password', 'regexps': [r'^\.\.\s+password\s?:\s*(?P<value>.*)$', r'^\#\+PASSWORD\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'previewimage', 'regexps': [r'^\.\.\s+previewimage\s?:\s*(?P<value>.*)$', r'^\#\+PREVIEWIMAGE\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'slug', 'regexps': [r'^\.\.\s+slug\s?:\s*(?P<value>.*)$', r'^\#\+SLUG\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'tags', 'regexps': [r'^\.\.\s+tags?\s?:\s*(?P<value>.*)$', r'^\#\+N[-_]?TAGS?\s?:\s*(?P<value>.*)$']},  # #+TAGS is omitted; Emacs uses this attribute more advanced. Use #+NIKOLA_TAGS instead.
+        {'keyword': 'template', 'regexps': [r'^\.\.\s+template\s?:\s*(?P<value>.*)$', r'^\#\+TEMPLATE\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'title', 'regexps': [r'^\.\.\s+title\s?:\s*(?P<value>.*)$', r'^\#\+TITLE\s?:\s*(?P<value>.*)$']},
+        {'keyword': 'type', 'regexps': [r'^\.\.\s+type\s?:\s*(?P<value>.*)$', r'^\#\+TYPE\s?:\s*(?P<value>.*)$']},
+    )
+    maskmarkers = (
+        {'begin': r'^\#\+BEGIN[-_]EXAMPLE', 'end': r'^\#\+END[-_]EXAMPLE'},
+        {'begin': r'^\#\+BEGIN[-_]NIKOLA[-_]IGNORE', 'end': r'^\#\+END[-_]NIKOLA[-_]IGNORE'},
+        {'begin': r'^\#\+BEGIN[-_]SRC', 'end': r'^\#\+END[-_]SRC'},
+    )
+
     def read_metadata(self, post, *args, **kwargs):
         """This function parse metadata.
         Parse will be disabled in special section
@@ -104,33 +143,6 @@ class CompileOrgmode(PageCompiler):
            #+N_TAGS: this, is, special, case
            #+N_LINK: http://this.is.special.case/too
         """
-        import re
-
-        attrmarkers = (
-            {'keyword': 'annotations', 'regexps': [r'^\.\.\s+annotations?\s?:\s*(?P<value>.*)$', r'^\#\+ANNOTATIONS?\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'author', 'regexps': [r'^\.\.\s+author\s?:\s*(?P<value>.*)$', r'^\#\+AUTHOR\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'category', 'regexps': [r'^\.\.\s+categor(?:y|ies)\s?:\s*(?P<value>.*)$', r'^\#\+CATEGOR(?:Y|IES)\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'date', 'regexps': [r'^\.\.\s+date\s?:\s*(?P<value>.*)$', r'^\#\+DATE\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'description', 'regexps': [r'^\.\.\s+description\s?:\s*(?P<value>.*)$', r'^\#\+DESCRIPTION\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'enclosure', 'regexps': [r'^\.\.\s+enclosure\s?:\s*(?P<value>.*)$', r'^\#\+ENCLOSURE\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'filters', 'regexps': [r'^\.\.\s+filters?\s?:\s*(?P<value>.*)$', r'^\#\+FILTERS?\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'hidetitle', 'regexps': [r'^\.\.\s+hidetitle\s?:\s*(?P<value>.*)$', r'^\#\+HIDETITLE\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'link', 'regexps': [r'^\.\.\s+link\s?:\s*(?P<value>.*)$', r'^\#\+N[-_]?LINK\s?:\s*(?P<value>.*)$']},  # #+LINK is omitted; Emacs uses this attribute as another purpose. Use #+NIKOLA_LINK instead.
-            {'keyword': 'noannotations', 'regexps': [r'^\.\.\s+noannotations?\s?:\s*(?P<value>.*)$', r'^\#\+NOANNOTATIONS?\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'nocomments', 'regexps': [r'^\.\.\s+nocomments?\s?:\s*(?P<value>.*)$', r'^\#\+NOCOMMENTS?\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'password', 'regexps': [r'^\.\.\s+password\s?:\s*(?P<value>.*)$', r'^\#\+PASSWORD\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'previewimage', 'regexps': [r'^\.\.\s+previewimage\s?:\s*(?P<value>.*)$', r'^\#\+PREVIEWIMAGE\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'slug', 'regexps': [r'^\.\.\s+slug\s?:\s*(?P<value>.*)$', r'^\#\+SLUG\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'tags', 'regexps': [r'^\.\.\s+tags?\s?:\s*(?P<value>.*)$', r'^\#\+N[-_]?TAGS?\s?:\s*(?P<value>.*)$']},  # #+TAGS is omitted; Emacs uses this attribute more advanced. Use #+NIKOLA_TAGS instead.
-            {'keyword': 'template', 'regexps': [r'^\.\.\s+template\s?:\s*(?P<value>.*)$', r'^\#\+TEMPLATE\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'title', 'regexps': [r'^\.\.\s+title\s?:\s*(?P<value>.*)$', r'^\#\+TITLE\s?:\s*(?P<value>.*)$']},
-            {'keyword': 'type', 'regexps': [r'^\.\.\s+type\s?:\s*(?P<value>.*)$', r'^\#\+TYPE\s?:\s*(?P<value>.*)$']},
-        )
-        maskmarkers = (
-            {'begin': r'^\#\+BEGIN[-_]EXAMPLE', 'end': r'^\#\+END[-_]EXAMPLE'},
-            {'begin': r'^\#\+BEGIN[-_]NIKOLA[-_]IGNORE', 'end': r'^\#\+END[-_]NIKOLA[-_]IGNORE'},
-            {'begin': r'^\#\+BEGIN[-_]SRC', 'end': r'^\#\+END[-_]SRC'},
-        )
 
         try:
             with codecs.open(post.source_path, 'r', "utf8") as fd:
@@ -139,14 +151,24 @@ class CompileOrgmode(PageCompiler):
             logger.critical('Couln\'t open the file. Stop processing. reason: {} file: {}'.format(err, post.source_path))
             raise
 
+        def find_section(regexps, content):
+            pos_pairs = set()
+            for marker in regexps:
+                if isinstance(marker['begin'], type(re.compile(''))):
+                    begin_match = marker['begin'].finditer(content)
+                else:
+                    begin_match = re.finditer(marker['begin'], content, re.IGNORECASE | re.MULTILINE)
+                begin_pos = (match.start() for match in begin_match)
+                if isinstance(marker['end'], type(re.compile(''))):
+                    end_match = marker['end'].finditer(content)
+                else:
+                    end_match = re.finditer(marker['end'], content, re.IGNORECASE | re.MULTILINE)
+                end_pos = (match.end() for match in end_match)
+                pos_pairs.update(x for x in zip(begin_pos, end_pos))
+            return pos_pairs
+
         # convert maskmarkers to maskranges #
-        maskranges = set()
-        for maskmarker in maskmarkers:
-            begin_match = re.finditer(maskmarker['begin'], content, re.IGNORECASE | re.MULTILINE)
-            begin_pos = (match.start() for match in begin_match)
-            end_match = re.finditer(maskmarker['end'], content, re.IGNORECASE | re.MULTILINE)
-            end_pos = (match.end() for match in end_match)
-            maskranges.update({x for x in zip(begin_pos, end_pos)})
+        maskranges = find_section(self.maskmarkers, content)
 
         def check_mask_range(span, maskranges):
             for maskrange in maskranges:
@@ -161,9 +183,9 @@ class CompileOrgmode(PageCompiler):
 
         # find metadata #
         metadata = dict()
-        for attrmarker in attrmarkers:
+        for attrmarker in self.attrmarkers:
             for regexp in attrmarker['regexps']:
-                match_iter = find_attr_gen(re.finditer(regexp, content, re.IGNORECASE | re.MULTILINE), maskranges)
+                match_iter = find_attr_gen(regexp.finditer(content), maskranges)
                 try:
                     match = next(match_iter)
                 except StopIteration: pass
@@ -176,7 +198,6 @@ class CompileOrgmode(PageCompiler):
             if not match.group('keyword').lower() in local_metadata:
                 local_metadata[match.group('keyword').lower()] = match.group('value')
         metadata.update(local_metadata)
-        del match_iter, local_metadata
 
         return metadata
 
